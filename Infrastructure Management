@@ -1,0 +1,127 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+
+// Configuration de la base de données
+const supabaseUrl = "https://djvqynczrefmsvjjhzrx.supabase.co";
+const supabaseAnonKey = "sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk";
+
+// --- DÉFINITION DES TYPES ---
+export interface VenueRecord {
+  id: number;
+  name: string;
+  city: string;
+  capacity: number;
+  surface_type: 'grass' | 'turf' | 'hardcourt' | 'clay';
+  is_available: boolean;
+  address: string;
+}
+
+// Données de secours
+const FALLBACK_VENUES: VenueRecord[] = [
+  { id: 1, name: "Stade Olympique Métropolitain", city: "Paris", capacity: 80000, surface_type: 'grass', is_available: true, address: "1 Avenue du Sport" },
+  { id: 2, name: "Aréna des Titans", city: "Lyon", capacity: 15000, surface_type: 'hardcourt', is_available: true, address: "15 Rue de l'Aréna" },
+  { id: 3, name: "Parc des Aigles", city: "Marseille", capacity: 67000, surface_type: 'grass', is_available: true, address: "99 Boulevard des Sports" },
+  { id: 4, name: "Gymnase de la Côte", city: "Nice", capacity: 5000, surface_type: 'turf', is_available: false, address: "42 Route de la Mer" },
+];
+
+export function AdminVenuesPage() {
+  const [supabase, setSupabase] = useState<any>(null);
+  const [venues, setVenues] = useState<VenueRecord[]>(FALLBACK_VENUES);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingVenue, setEditingVenue] = useState<VenueRecord | null>(null);
+  const [form, setForm] = useState({ name: "", city: "", capacity: "1000", surface_type: "grass" as any, is_available: true, address: "" });
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showNotification = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Chargement SDK
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+    script.onload = () => {
+      const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+      setSupabase(client);
+    };
+    document.body.appendChild(script);
+  }, []);
+
+  // CRUD READ
+  useEffect(() => {
+    if (supabase) {
+      supabase.from("venues").select("*").then(({ data }: any) => {
+        if (data) setVenues(data);
+      });
+    }
+  }, [supabase]);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const payload = { ...form, capacity: Number(form.capacity) };
+    
+    if (supabase) {
+      if (editingVenue) {
+        await supabase.from("venues").update(payload).eq("id", editingVenue.id);
+      } else {
+        await supabase.from("venues").insert([payload]);
+      }
+      const { data } = await supabase.from("venues").select("*");
+      setVenues(data || []);
+    } else {
+      showNotification("[Simulation] Opération réussie.");
+    }
+    setModalOpen(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0b0d10] text-[#f1f3f7] p-8">
+      {toast && <div className="fixed top-5 right-5 bg-emerald-900 text-white px-6 py-3 rounded-xl z-50">{toast}</div>}
+      
+      <div className="max-w-7xl mx-auto">
+        <div className="flex justify-between items-center mb-10">
+          <div>
+            <h1 className="text-3xl font-black text-white uppercase">Gestion des Infrastructures</h1>
+            <p className="text-gray-400 text-sm">Cartographie des stades et terrains de compétition.</p>
+          </div>
+          <button onClick={() => { setEditingVenue(null); setModalOpen(true); }} className="bg-blue-600 px-6 py-2 rounded-lg font-bold text-white uppercase text-xs">Ajouter un Stade</button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {venues.map((v) => (
+            <div key={v.id} className="bg-[#11141a] border border-[#222733] p-6 rounded-2xl">
+              <h3 className="font-bold text-white text-lg">{v.name}</h3>
+              <p className="text-blue-400 text-xs mb-4">📍 {v.city}</p>
+              <div className="space-y-2 text-sm text-gray-400">
+                <p>Capacité: <span className="text-white">{v.capacity.toLocaleString()}</span></p>
+                <p>Surface: <span className="capitalize">{v.surface_type}</span></p>
+                <p>Statut: {v.is_available ? <span className="text-emerald-500">Disponible</span> : <span className="text-red-500">Maintenance</span>}</p>
+              </div>
+              <div className="mt-6 flex gap-2">
+                <button onClick={() => { setEditingVenue(v); setForm(v as any); setModalOpen(true); }} className="text-xs border border-blue-900 text-blue-400 px-4 py-1 rounded">Éditer</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4">
+          <form onSubmit={handleSubmit} className="bg-[#11141a] p-8 rounded-2xl w-full max-w-md border border-[#222733]">
+            <h2 className="text-xl font-black mb-4 text-white">Configurer l'Infrastucture</h2>
+            <input className="w-full bg-black mb-3 p-2 rounded border border-[#222733]" placeholder="Nom" value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} required />
+            <input className="w-full bg-black mb-3 p-2 rounded border border-[#222733]" placeholder="Ville" value={form.city} onChange={(e) => setForm({...form, city: e.target.value})} required />
+            <input type="number" className="w-full bg-black mb-3 p-2 rounded border border-[#222733]" placeholder="Capacité" value={form.capacity} onChange={(e) => setForm({...form, capacity: e.target.value})} />
+            <button type="submit" className="w-full bg-blue-600 py-2 rounded text-white font-bold text-xs uppercase mt-4">Enregistrer</button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  return <AdminVenuesPage />;
+}
