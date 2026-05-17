@@ -1,0 +1,198 @@
+"use client";
+
+import Link from "next/link";
+import { FormEvent, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
+// Configuration de l'adresse email de l'administrateur système
+const ADMIN_EMAIL = "admin@prosport-tournament.com";
+
+/**
+ * Fonction de validation du format d'adresse email
+ */
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export default function Home() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [emailErr, setEmailErr] = useState("");
+  const [passErr, setPassErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [generalErr, setGeneralErr] = useState("");
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setEmailErr("");
+    setPassErr("");
+    setGeneralErr("");
+
+    let valid = true;
+    if (!email) {
+      setEmailErr("Veuillez saisir votre adresse email.");
+      valid = false;
+    } else if (!isValidEmail(email)) {
+      setEmailErr("Veuillez saisir une adresse email valide.");
+      valid = false;
+    }
+
+    if (!password) {
+      setPassErr("Veuillez saisir votre mot de passe.");
+      valid = false;
+    } else if (password.length < 6) {
+      setPassErr("Le mot de passe doit contenir au moins 6 caractères.");
+      valid = false;
+    }
+
+    if (!valid) return;
+
+    setLoading(true);
+
+    try {
+      // Authentification de l'utilisateur avec Supabase Auth (email + mot de passe)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        setGeneralErr(error.message || "Identifiants incorrects. Veuillez réessayer.");
+        setLoading(false);
+        return;
+      }
+
+      // Redirection après connexion réussie
+      if (data.user) {
+        if (data.user.email === ADMIN_EMAIL) {
+          // L'administrateur est redirigé vers l'interface d'administration principale
+          window.location.href = "/admin";
+        } else {
+          // Les capitaines d'équipes et athlètes sont redirigés vers leur tableau de bord
+          window.location.href = "/dashboard";
+        }
+      }
+    } catch (err: unknown) {
+      console.error("Erreur d'authentification:", err);
+      setGeneralErr("Une erreur inattendue est survenue lors de la connexion.");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid min-h-screen place-items-center bg-[var(--bg)] px-4 py-10">
+      <div className="grid w-full max-w-[940px] overflow-hidden rounded-[20px] border border-[var(--line)] bg-[var(--panel)] shadow-[0_24px_64px_rgba(0,0,0,.4)] md:grid-cols-2">
+        
+        {/* SECTION GAUCHE : Formulaire de Connexion */}
+        <div className="flex flex-col justify-center px-8 py-12 sm:px-14">
+          <div className="mb-8">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[var(--text)]">
+              Espace Athlète
+            </h1>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Connectez-vous pour inscrire et gérer votre équipe.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+            {generalErr && (
+              <div className="rounded-md bg-red-950/40 p-3 text-sm text-red-400 border border-red-900/50">
+                {generalErr}
+              </div>
+            )}
+
+            {/* Champ Email */}
+            <div className="flex flex-col">
+              <label className="mb-1 text-xs font-semibold tracking-wider text-[var(--muted)] uppercase">
+                Adresse Email
+              </label>
+              <input
+                type="email"
+                placeholder="capitaine@equipe.com"
+                className="w-full border-b-2 border-[var(--line)] bg-transparent px-1 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--accent-1)]"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              {emailErr && (
+                <p className="mt-1 text-xs text-red-400">{emailErr}</p>
+              )}
+            </div>
+
+            {/* Champ Mot de Passe */}
+            <div className="flex flex-col">
+              <label className="mb-1 text-xs font-semibold tracking-wider text-[var(--muted)] uppercase">
+                Mot de Passe
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                className="w-full border-b-2 border-[var(--line)] bg-transparent px-1 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--accent-1)]"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              {passErr && (
+                <p className="mt-1 text-xs text-red-400">{passErr}</p>
+              )}
+            </div>
+
+            {/* Bouton de Soumission */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-4 w-full rounded-full bg-[linear-gradient(145deg,var(--accent-1),var(--accent-2))] py-3.5 text-sm font-bold tracking-wide text-white shadow-[0_8px_24px_rgba(37,99,235,.35)] transition hover:shadow-[0_10px_28px_rgba(37,99,235,.45)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Vérification en cours..." : "Se Connecter"}
+            </button>
+
+            {/* Liens de Navigation */}
+            <div className="mt-6 flex flex-col gap-3 text-center text-xs text-[var(--muted)]">
+              <span>
+                Pas encore de compte ?{" "}
+                <Link
+                  href="/register"
+                  className="font-semibold text-[var(--accent-3)] hover:underline"
+                >
+                  Créer un compte d'équipe
+                </Link>
+              </span>
+              <span>
+                Organisateur ?{" "}
+                <Link
+                  href="/admin/login"
+                  className="font-semibold text-[var(--accent-3)] hover:underline"
+                >
+                  Connexion Administration
+                </Link>
+              </span>
+            </div>
+          </form>
+        </div>
+
+        {/* SECTION DROITE : Panneau d'Information ProSport */}
+        <div className="relative hidden items-center justify-center bg-[linear-gradient(145deg,rgba(30,64,175,.95),rgba(29,78,216,.95))] p-8 text-white md:flex">
+          {/* Grille de fond subtile */}
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(96,165,250,0.15),transparent_70%)] pointer-events-none" />
+          
+          <div className="relative z-[1] grid h-full place-items-center px-10 text-center">
+            <div>
+              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-3xl">
+                🏆
+              </div>
+              <h2 className="mb-4 text-[40px] font-extrabold leading-[1.1] tracking-tight">
+                PROSPORT TOURNAMENT
+              </h2>
+              <p className="mx-auto max-w-xs text-sm font-medium leading-relaxed text-blue-100">
+                De la phase de poules à la grande finale, gérez vos équipes, vos athlètes et planifiez vos rencontres de championnat sur une plateforme unique et performante.
+              </p>
+              <div className="mt-8 inline-flex items-center gap-2 rounded-full bg-white/5 px-4 py-1.5 text-xs text-blue-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                Saison 2026 en direct
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
