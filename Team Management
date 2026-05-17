@@ -1,0 +1,817 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+// Configuration de la base de données distante Supabase
+const supabaseUrl = "https://djvqynczrefmsvjjhzrx.supabase.co";
+const supabaseAnonKey = "sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk";
+
+// --- DÉFINITION DES TYPES ET INTERFACES ---
+export type TeamStatus = 'active' | 'eliminated' | 'pending' | 'inactive';
+export type TeamCategory = 'pro' | 'amateur' | 'youth' | 'varsity';
+
+export interface Venue {
+  id: number;
+  name: string;
+  city: string;
+}
+
+export interface TeamRecord {
+  id: number;
+  venue_id: number | null; // ID du stade associé
+  name: string;            // Nom du club (ex: Metropolis Strikers)
+  coach: string;           // Entraîneur principal
+  founded_year: number;    // Année de création du club
+  category: TeamCategory;  // Niveau de compétition
+  registration_fee: number;// Cotisation d'inscription
+  status: TeamStatus;      // Position dans la ligue
+  image_url: string;       // Logo d'illustration
+  description: string;     // Présentation courte
+  sport: string;           // Discipline
+  home_city: string;       // Ville
+  players_count: number;   // Nombre de licenciés
+}
+
+// Données de secours des stades
+const DEFAULT_VENUES: Venue[] = [
+  { id: 1, name: "Stade Olympique Métropolitain", city: "Paris" },
+  { id: 2, name: "Aréna des Titans", city: "Lyon" },
+  { id: 3, name: "Parc des Aigles", city: "Marseille" },
+  { id: 4, name: "Gymnase de la Côte", city: "Nice" },
+];
+
+// Données de secours des équipes (Fallback en cas de déconnexion réseau SGBD)
+const FALLBACK_TEAMS: TeamRecord[] = [
+  {
+    id: 1,
+    venue_id: 1,
+    name: "Metropolis Strikers",
+    coach: "Jean-Pierre Silva",
+    founded_year: 2015,
+    category: "pro",
+    registration_fee: 250,
+    image_url: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80",
+    description: "Champions en titre régionaux, réputés pour leur jeu collectif fluide.",
+    status: "active",
+    sport: "Football",
+    home_city: "Paris",
+    players_count: 18
+  },
+  {
+    id: 2,
+    venue_id: 2,
+    name: "Apex Titans",
+    coach: "Sarah Dupont",
+    founded_year: 2018,
+    category: "pro",
+    registration_fee: 300,
+    image_url: "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=600&q=80",
+    description: "Une équipe athlétique avec une défense imperméable.",
+    status: "active",
+    sport: "Basketball",
+    home_city: "Lyon",
+    players_count: 12
+  },
+  {
+    id: 3,
+    venue_id: 3,
+    name: "Vanguard Eagles",
+    coach: "Marc-André Lavoie",
+    founded_year: 2020,
+    category: "varsity",
+    registration_fee: 200,
+    image_url: "https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=600&q=80",
+    description: "Jeune équipe universitaire dynamique avec une excellente cohésion.",
+    status: "active",
+    sport: "Football",
+    home_city: "Marseille",
+    players_count: 22
+  },
+  {
+    id: 4,
+    venue_id: 4,
+    name: "Coastal Mavericks",
+    coach: "Hélène Rocher",
+    founded_year: 2021,
+    category: "amateur",
+    registration_fee: 150,
+    image_url: "https://images.unsplash.com/photo-1592656094267-764a45068526?auto=format&fit=crop&w=600&q=80",
+    description: "Équipe locale passionnée, prête à surprendre les favoris.",
+    status: "pending",
+    sport: "Volleyball",
+    home_city: "Nice",
+    players_count: 10
+  }
+];
+
+export function AdminTeamsPage() {
+  const [supabase, setSupabase] = useState<any>(null);
+  const [teams, setTeams] = useState<TeamRecord[]>(FALLBACK_TEAMS);
+  const [venues, setVenues] = useState<Venue[]>(DEFAULT_VENUES);
+  const [authorized] = useState(true);
+
+  // Filtres de recherche
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  // États du formulaire modal
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<TeamRecord | null>(null);
+  const [formError, setFormError] = useState("");
+  
+  const [form, setForm] = useState({
+    name: "",
+    coach: "",
+    founded_year: "2024",
+    category: "pro" as TeamCategory,
+    registration_fee: "250",
+    venue_id: "",
+    status: "active" as TeamStatus,
+    image_url: "",
+    description: "",
+    sport: "Football",
+    home_city: "Paris",
+    players_count: "12"
+  });
+
+  // Notifications
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showNotification = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // 1. Initialisation dynamique de Supabase pour éviter les erreurs d'importation
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if ((window as any).supabase) {
+        try {
+          const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+          setSupabase(client);
+          return;
+        } catch (e) {
+          console.error("Erreur d'initialisation du client :", e);
+        }
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      script.async = true;
+      script.onload = () => {
+        if ((window as any).supabase) {
+          try {
+            const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+            setSupabase(client);
+          } catch (e) {
+            console.error("Erreur post-chargement client :", e);
+          }
+        }
+      };
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // 2. Synchronisation en temps réel avec Supabase
+  const loadDatabaseData = async (client: any) => {
+    try {
+      // Lecture des stades (venues)
+      const { data: venuesData, error: venuesErr } = await client
+        .from("venues")
+        .select("id, name, city");
+
+      if (venuesErr) throw venuesErr;
+      if (venuesData && venuesData.length > 0) {
+        setVenues(venuesData);
+      }
+
+      // Lecture des équipes
+      const { data: teamsData, error: teamsErr } = await client
+        .from("teams")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (teamsErr) throw teamsErr;
+      if (teamsData) {
+        setTeams(teamsData);
+      }
+    } catch (err: any) {
+      console.warn("Utilisation de la base locale simulée.", err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (supabase) {
+      loadDatabaseData(supabase);
+    }
+  }, [supabase]);
+
+  // Statistiques calculées
+  const stats = useMemo(() => {
+    const total = teams.length;
+    const activeCount = teams.filter((t) => t.status === "active").length;
+    const pendingCount = teams.filter((t) => t.status === "pending").length;
+    const avgFee = total > 0 
+      ? Math.round(teams.reduce((acc, curr) => acc + Number(curr.registration_fee), 0) / total) 
+      : 0;
+    return { total, activeCount, pendingCount, avgFee };
+  }, [teams]);
+
+  // Filtres
+  const filteredTeams = useMemo(() => {
+    return teams.filter((t) => {
+      const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase()) || 
+                            t.coach.toLowerCase().includes(search.toLowerCase()) ||
+                            t.home_city.toLowerCase().includes(search.toLowerCase());
+      const matchesCategory = categoryFilter ? t.category === categoryFilter : true;
+      const matchesStatus = statusFilter ? t.status === statusFilter : true;
+      return matchesSearch && matchesCategory && matchesStatus;
+    });
+  }, [teams, search, categoryFilter, statusFilter]);
+
+  // Ouvrir formulaire en mode Ajout
+  const handleAddClick = () => {
+    setEditingTeam(null);
+    setForm({
+      name: "",
+      coach: "",
+      founded_year: "2026",
+      category: "pro",
+      registration_fee: "250",
+      venue_id: venues[0]?.id.toString() || "",
+      status: "active",
+      image_url: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80",
+      description: "",
+      sport: "Football",
+      home_city: "Paris",
+      players_count: "12"
+    });
+    setFormError("");
+    setModalOpen(true);
+  };
+
+  // Ouvrir formulaire en mode Modification
+  const handleEditClick = (team: TeamRecord) => {
+    setEditingTeam(team);
+    setForm({
+      name: team.name,
+      coach: team.coach,
+      founded_year: team.founded_year.toString(),
+      category: team.category,
+      registration_fee: team.registration_fee.toString(),
+      venue_id: team.venue_id?.toString() || "",
+      status: team.status,
+      image_url: team.image_url,
+      description: team.description,
+      sport: team.sport,
+      home_city: team.home_city,
+      players_count: team.players_count.toString()
+    });
+    setFormError("");
+    setModalOpen(true);
+  };
+
+  // Soumission de la transaction d'écriture (INSERT / UPDATE)
+  const handleFormSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setFormError("");
+
+    if (!form.name || !form.coach || !form.home_city) {
+      setFormError("Le nom de l'équipe, de l'entraîneur et de la ville sont requis.");
+      return;
+    }
+
+    const feeNum = Number(form.registration_fee);
+    const yearNum = Number(form.founded_year);
+    const playersNum = Number(form.players_count);
+
+    if (isNaN(feeNum) || feeNum < 0) {
+      setFormError("Les frais d'inscription doivent être un montant positif.");
+      return;
+    }
+
+    const payload = {
+      name: form.name,
+      coach: form.coach,
+      founded_year: isNaN(yearNum) ? 2026 : yearNum,
+      category: form.category,
+      registration_fee: feeNum,
+      venue_id: form.venue_id ? Number(form.venue_id) : null,
+      status: form.status,
+      image_url: form.image_url || "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80",
+      description: form.description,
+      sport: form.sport,
+      home_city: form.home_city,
+      players_count: isNaN(playersNum) ? 12 : playersNum
+    };
+
+    if (supabase) {
+      try {
+        if (editingTeam) {
+          // UPDATE dans PostgreSQL
+          const { data, error } = await supabase
+            .from("teams")
+            .update(payload)
+            .eq("id", editingTeam.id)
+            .select();
+
+          if (error) throw error;
+          if (data) {
+            setTeams(teams.map(t => t.id === editingTeam.id ? data[0] : t));
+            showNotification(`Équipe "${form.name}" modifiée sur Supabase.`);
+          }
+        } else {
+          // INSERT dans PostgreSQL
+          const { data, error } = await supabase
+            .from("teams")
+            .insert([payload])
+            .select();
+
+          if (error) throw error;
+          if (data) {
+            setTeams([data[0], ...teams]);
+            showNotification(`Équipe "${form.name}" enregistrée sur Supabase.`);
+          }
+        }
+        setModalOpen(false);
+      } catch (err: any) {
+        setFormError(err.message || "Erreur de connexion au serveur PostgreSQL.");
+      }
+    } else {
+      // Simulation locale en cas d'absence de SGBD
+      if (editingTeam) {
+        setTeams(teams.map(t => t.id === editingTeam.id ? { ...t, ...payload, id: t.id } : t));
+        showNotification(`[Simulation] Équipe "${form.name}" mise à jour.`);
+      } else {
+        const newLocal: TeamRecord = {
+          ...payload,
+          id: teams.length > 0 ? Math.max(...teams.map(t => t.id)) + 1 : 1
+        };
+        setTeams([newLocal, ...teams]);
+        showNotification(`[Simulation] Nouvelle équipe "${form.name}" ajoutée.`);
+      }
+      setModalOpen(false);
+    }
+  };
+
+  // Suppression d'un enregistrement (DELETE)
+  const handleDeleteClick = async (id: number, name: string) => {
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from("teams")
+          .delete()
+          .eq("id", id);
+
+        if (error) throw error;
+        setTeams(teams.filter(t => t.id !== id));
+        showNotification(`L'équipe "${name}" a été définitivement supprimée de Supabase.`);
+      } catch (err: any) {
+        showNotification("Impossible de supprimer l'équipe.");
+      }
+    } else {
+      setTeams(teams.filter(t => t.id !== id));
+      showNotification(`[Simulation] Équipe "${name}" retirée.`);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0b0d10] text-[#f1f3f7] font-sans antialiased">
+      
+      {/* BANDEAU NOTIFICATION TOAST */}
+      {toast && (
+        <div className="fixed top-5 right-5 z-50 rounded-xl bg-blue-950 border border-blue-500/30 px-5 py-4 text-sm text-blue-200 shadow-2xl animate-fade-in">
+          <div className="flex items-center gap-2">
+            <span>🛡️</span>
+            <p className="font-semibold">{toast}</p>
+          </div>
+        </div>
+      )}
+
+      {/* EN-TÊTE DU PANEL ADMINISTRATEUR */}
+      <header className="border-b border-[#222733] bg-[#11141a]">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⚡</span>
+            <div>
+              <h1 className="text-lg font-black tracking-wider text-white uppercase">PANEL ORGANISATEUR</h1>
+              <p className="text-[10px] text-[#8a94a6] font-bold tracking-widest">SGBD TOURNAMENT ENGINE</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="hidden text-right md:block">
+              <span className="rounded bg-blue-900/30 border border-blue-500/20 px-2.5 py-1 text-[10px] font-bold text-blue-300 uppercase">
+                Administrateur Principal
+              </span>
+              <p className="text-xs text-[#8a94a6] mt-0.5 font-mono">admin@prosport-tournament.com</p>
+            </div>
+            <a href="/" className="rounded-full border border-[#222733] px-4 py-1.5 text-xs font-bold text-white hover:bg-white/5 transition">
+              Déconnexion
+            </a>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        
+        {/* TITRE DE SECTION ET AJOUT */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-black text-white uppercase tracking-tight">Gestion des Effectifs</h2>
+            <p className="text-xs text-[#8a94a6] mt-1">Gérez la liste des clubs engagés, les affiliations logistiques de stades et modifiez l'état de validation de leurs droits.</p>
+          </div>
+          <button
+            onClick={handleAddClick}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-[linear-gradient(145deg,#2563eb,#1d4ed8)] px-6 py-3 text-xs font-black uppercase tracking-wider text-white shadow-[0_8px_20px_rgba(37,99,235,.35)] hover:shadow-[0_10px_24px_rgba(37,99,235,.45)] transition"
+          >
+            ➕ Enregistrer une Équipe
+          </button>
+        </div>
+
+        {/* METRICS DE COMPÉTITIONS */}
+        <section className="grid gap-4 grid-cols-2 lg:grid-cols-4 mb-8">
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8a94a6]">Clubs Inscrits</p>
+            <h3 className="mt-2 text-2xl font-black text-white">{stats.total}</h3>
+            <p className="mt-1 text-xs text-blue-400">Enregistrés dans le SGBD</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8a94a6]">Qualifiés Actifs</p>
+            <h3 className="mt-2 text-2xl font-black text-emerald-400">{stats.activeCount}</h3>
+            <p className="mt-1 text-xs text-gray-400">Saison régulière active</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8a94a6]">Feuilles en Attente</p>
+            <h3 className="mt-2 text-2xl font-black text-amber-400">{stats.pendingCount}</h3>
+            <p className="mt-1 text-xs text-gray-400">Attente de validation d'effectif</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#8a94a6]">Moyenne d'Engagement</p>
+            <h3 className="mt-2 text-2xl font-black text-white">{stats.avgFee} €</h3>
+            <p className="mt-1 text-xs text-emerald-400">Par licence de club</p>
+          </div>
+        </section>
+
+        {/* FILTRES D'ADMINISTRATION */}
+        <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-[#222733] bg-[#11141a] p-5 md:flex-row md:items-center">
+          <div className="flex-1">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Rechercher</label>
+            <input
+              type="text"
+              placeholder="Rechercher par équipe, entraîneur principal, ville d'origine..."
+              className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-[#2563eb] focus:outline-none"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="w-full md:w-56">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Catégorie</label>
+            <select
+              className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">Toutes les catégories</option>
+              <option value="pro">Ligue Pro</option>
+              <option value="amateur">Amateur</option>
+              <option value="youth">Junior / Youth</option>
+              <option value="varsity">Universitaire</option>
+            </select>
+          </div>
+
+          <div className="w-full md:w-56">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Statut</label>
+            <select
+              className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="">Tous les statuts</option>
+              <option value="active">Actif (Validé)</option>
+              <option value="pending">En attente de visa</option>
+              <option value="eliminated">Éliminé (Hors-course)</option>
+              <option value="inactive">Dossier Incomplet</option>
+            </select>
+          </div>
+        </div>
+
+        {/* GRILLE DES RAPPORTS DE DONNÉES */}
+        <div className="overflow-hidden rounded-2xl border border-[#222733] bg-[#11141a]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-[#222733] text-xs font-semibold uppercase tracking-wider text-[#8a94a6] bg-black/30">
+                  <th className="px-6 py-4">ID</th>
+                  <th className="px-6 py-4">Club Sportif</th>
+                  <th className="px-6 py-4">Discipline</th>
+                  <th className="px-6 py-4">Coach</th>
+                  <th className="px-6 py-4">Fondation</th>
+                  <th className="px-6 py-4">Division</th>
+                  <th className="px-6 py-4">Frais engagés</th>
+                  <th className="px-6 py-4">Stade / Terrain alloué</th>
+                  <th className="px-6 py-4">Statut</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#222733] text-sm">
+                {filteredTeams.map((team) => {
+                  const assignedVenue = venues.find(v => v.id === team.venue_id);
+                  return (
+                    <tr key={team.id} className="hover:bg-white/[0.02] transition">
+                      <td className="px-6 py-4 font-mono text-xs text-gray-500">#{team.id}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={team.image_url}
+                            alt={team.name}
+                            className="h-9 w-9 rounded-full object-cover border border-[#222733]"
+                            onError={(e) => {
+                              e.currentTarget.src = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80";
+                            }}
+                          />
+                          <div>
+                            <span className="font-bold text-white block">{team.name}</span>
+                            <span className="text-[10px] text-[#8a94a6] block max-w-xs truncate">📍 {team.home_city}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="rounded bg-blue-900/30 px-2.5 py-0.5 text-xs font-semibold text-blue-300">
+                          {team.sport}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-medium text-gray-300">{team.coach}</td>
+                      <td className="px-6 py-4 font-mono text-xs text-gray-300">{team.founded_year}</td>
+                      <td className="px-6 py-4">
+                        <span className="rounded bg-white/5 px-2 py-0.5 text-xs font-semibold text-gray-300 uppercase tracking-wider text-[10px]">
+                          {team.category}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-bold text-blue-400">{team.registration_fee} €</td>
+                      <td className="px-6 py-4 text-xs font-semibold">
+                        {assignedVenue ? (
+                          <span className="text-gray-300">🏟️ {assignedVenue.name} ({assignedVenue.city})</span>
+                        ) : (
+                          <span className="text-amber-500">⚠️ Aucun stade assigné</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase ${
+                          team.status === "active"
+                            ? "bg-emerald-950 text-emerald-400"
+                            : team.status === "pending"
+                            ? "bg-amber-950 text-amber-400"
+                            : team.status === "eliminated"
+                            ? "bg-red-950 text-red-400"
+                            : "bg-gray-800 text-gray-400"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${
+                            team.status === "active" ? "bg-emerald-400" : team.status === "pending" ? "bg-amber-400" : team.status === "eliminated" ? "bg-red-400" : "bg-gray-400"
+                          }`} />
+                          {team.status === "active" ? "Validé" : team.status === "pending" ? "En attente" : team.status === "eliminated" ? "Éliminé" : "Bloqué"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleEditClick(team)}
+                            className="rounded border border-blue-500 px-3 py-1 text-xs font-bold text-blue-400 hover:bg-blue-500 hover:text-white transition"
+                          >
+                            Éditer
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(team.id, team.name)}
+                            className="rounded border border-red-500 px-3 py-1 text-xs font-bold text-red-400 hover:bg-red-500 hover:text-white transition"
+                          >
+                            Retirer
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {filteredTeams.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-12 text-center text-sm text-[#8a94a6] bg-white/[0.01]">
+                      Aucun club sportif ne correspond aux critères saisis.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+
+      {/* MODAL CONFIGURATION FORMULAIRE ÉQUIPE (AJOUT & MODIFICATION) */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl border border-[#222733] bg-[#11141a] p-6 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-[#222733] pb-4 mb-4">
+              <div>
+                <h3 className="text-lg font-black text-white uppercase tracking-tight">
+                  {editingTeam ? `Modifier l'Équipe : ${editingTeam.name}` : "Enregistrer un Club Sportif"}
+                </h3>
+                <p className="text-xs text-[#8a94a6]">Paramétrage technique des attributions relationnelles.</p>
+              </div>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-gray-400 hover:text-white font-bold text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            {formError && (
+              <div className="rounded-lg bg-red-950/40 border border-red-900/50 p-3 text-xs text-red-400 mb-4">
+                ⚠️ {formError}
+              </div>
+            )}
+
+            <form onSubmit={handleFormSubmit} className="flex flex-col gap-4">
+              
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Nom */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Nom du Club Sportif</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Metropolis Strikers"
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  />
+                </div>
+
+                {/* Coach */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Entraîneur (Coach)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Jean-Pierre Silva"
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.coach}
+                    onChange={(e) => setForm({ ...form, coach: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Discipline Sportive */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Discipline Sportive</label>
+                  <select
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.sport}
+                    onChange={(e) => setForm({ ...form, sport: e.target.value })}
+                  >
+                    <option value="Football">Football</option>
+                    <option value="Basketball">Basketball</option>
+                    <option value="Volleyball">Volleyball</option>
+                  </select>
+                </div>
+
+                {/* Ville d'origine */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Ville d'origine (Attribution locale)</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Paris"
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.home_city}
+                    onChange={(e) => setForm({ ...form, home_city: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                {/* Année de Fondation */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Fondation (Année)</label>
+                  <input
+                    type="number"
+                    min="1800"
+                    max="2026"
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none animate-fade-in"
+                    value={form.founded_year}
+                    onChange={(e) => setForm({ ...form, founded_year: e.target.value })}
+                  />
+                </div>
+
+                {/* Catégorie */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Catégorie</label>
+                  <select
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.category}
+                    onChange={(e) => setForm({ ...form, category: e.target.value as TeamCategory })}
+                  >
+                    <option value="pro">Pro (Élite)</option>
+                    <option value="amateur">Amateur</option>
+                    <option value="youth">Junior / Youth</option>
+                    <option value="varsity">Universitaire</option>
+                  </select>
+                </div>
+
+                {/* Frais d'inscription */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Licence Annuelle (€)</label>
+                  <input
+                    type="number"
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.registration_fee}
+                    onChange={(e) => setForm({ ...form, registration_fee: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Stade */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Attribution Stade Domicile</label>
+                  <select
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.venue_id}
+                    onChange={(e) => setForm({ ...form, venue_id: e.target.value })}
+                  >
+                    <option value="">Aucun stade attribué</option>
+                    {venues.map(v => (
+                      <option key={v.id} value={v.id}>{v.name} ({v.city})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Statut administratif */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Validation SGBD / Statut</label>
+                  <select
+                    className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                    value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value as TeamStatus })}
+                  >
+                    <option value="active">Actif (Dossier Approuvé)</option>
+                    <option value="pending">En attente de visa</option>
+                    <option value="eliminated">Éliminé (Hors-course)</option>
+                    <option value="inactive">Dossier Incomplet</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* URL du Logo */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">URL du Logo ou Illustration de l'équipe</label>
+                <input
+                  type="url"
+                  placeholder="https://images.unsplash.com/photo-..."
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none text-xs font-mono"
+                  value={form.image_url}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                />
+              </div>
+
+              {/* Description et historique */}
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[#8a94a6] mb-1">Description & Historique de l'Équipe</label>
+                <textarea
+                  className="h-20 w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none text-xs"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Notes sur les forces, la liste d'effectif, l'historique ou la composition tactique du club..."
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-[#222733]">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="rounded-full border border-[#222733] px-5 py-2 text-xs font-bold uppercase text-[#8a94a6] hover:border-red-500/40 hover:text-red-400 transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-full bg-[linear-gradient(145deg,#2563eb,#1d4ed8)] px-6 py-2 text-xs font-black uppercase tracking-wider text-white shadow-md hover:shadow-lg transition"
+                >
+                  {editingTeam ? "Enregistrer les modifications" : "Valider le Club"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+export default function App() {
+  return <AdminTeamsPage />;
+}
