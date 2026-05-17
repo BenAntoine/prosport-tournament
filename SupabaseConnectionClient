@@ -1,0 +1,17 @@
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase project credentials configuration
+const supabaseUrl = 'https://djvqynczrefmsvjjhzrx.supabase.co';
+const supabaseAnonKey = 'sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk';
+
+// Initialize the Supabase client for the ProSport Tournament project
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+/**
+ * This client enables your application to interact with your Supabase tables:
+ * - teams
+ * - matches
+ * - venues
+ * - medical_incidents
+ * - registrations
+ */
