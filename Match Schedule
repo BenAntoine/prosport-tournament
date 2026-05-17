@@ -1,0 +1,91 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
+// --- DÉFINITION DES TYPES ---
+interface Match {
+  id: number;
+  home_team: string;
+  away_team: string;
+  venue: string;
+  date: string;
+  status: 'pending' | 'ongoing' | 'finished';
+}
+
+const INITIAL_MATCHES: Match[] = [
+  { id: 1, home_team: "Les Titans", away_team: "Aigles de Marseille", venue: "Stade Olympique", date: "2026-06-20 18:00", status: "pending" },
+  { id: 2, home_team: "Nice FC", away_team: "Lyon Sport", venue: "Aréna des Titans", date: "2026-06-21 20:00", status: "pending" },
+];
+
+export function AdminMatchesPage() {
+  const [matches, setMatches] = useState<Match[]>(INITIAL_MATCHES);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-gray-200 p-8 font-sans">
+      <div className="max-w-6xl mx-auto">
+        <header className="flex justify-between items-end border-b border-gray-800 pb-6 mb-8">
+          <div>
+            <h1 className="text-4xl font-extrabold text-white tracking-tighter">Calendrier des Matchs</h1>
+            <p className="text-gray-500">Coordination et planification des rencontres sportives</p>
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-white text-black font-bold px-6 py-2 rounded-full hover:bg-gray-200 transition"
+          >
+            + Programmer un match
+          </button>
+        </header>
+
+        <div className="bg-[#0b0b0b] rounded-3xl border border-gray-800 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-[#111111] text-gray-400 text-xs uppercase">
+              <tr>
+                <th className="p-6">Date</th>
+                <th className="p-6">Équipes</th>
+                <th className="p-6">Stade</th>
+                <th className="p-6">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {matches.map((m) => (
+                <tr key={m.id} className="hover:bg-[#151515] transition">
+                  <td className="p-6 text-sm">{m.date}</td>
+                  <td className="p-6 font-semibold text-white">{m.home_team} vs {m.away_team}</td>
+                  <td className="p-6 text-sm text-gray-400">{m.venue}</td>
+                  <td className="p-6">
+                    <span className="px-3 py-1 bg-yellow-900/30 text-yellow-500 rounded-full text-[10px] font-bold uppercase">
+                      {m.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#111111] p-8 rounded-3xl border border-gray-800 w-full max-w-lg">
+            <h2 className="text-2xl font-bold mb-6">Programmation</h2>
+            <div className="space-y-4">
+              <input type="text" placeholder="Équipe Domicile" className="w-full bg-[#050505] p-4 rounded-xl border border-gray-800" />
+              <input type="text" placeholder="Équipe Extérieure" className="w-full bg-[#050505] p-4 rounded-xl border border-gray-800" />
+              <button 
+                onClick={() => setIsModalOpen(false)}
+                className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold mt-4"
+              >
+                Confirmer la programmation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function App() {
+  return <AdminMatchesPage />;
+}
