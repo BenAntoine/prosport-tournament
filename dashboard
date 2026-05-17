@@ -1,0 +1,788 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+// Configuration de la base de données distante Supabase
+const supabaseUrl = "https://djvqynczrefmsvjjhzrx.supabase.co";
+const supabaseAnonKey = "sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk";
+
+// --- DÉFINITION DES TYPES ET INTERFACES ---
+export type TeamStatus = 'active' | 'eliminated' | 'pending' | 'inactive';
+export type TeamCategory = 'pro' | 'amateur' | 'youth' | 'varsity';
+
+export interface Team {
+  id: number;
+  name: string;
+  coach: string;
+  founded_year: number;
+  category: TeamCategory;
+  registration_fee: number;
+  image_url: string;
+  description: string;
+  status: TeamStatus;
+  sport: string;
+  home_city: string;
+  players_count: number;
+}
+
+export interface Registration {
+  id: number;
+  team_id: number;
+  sport: string;
+  captain_name: string;
+  players_count: number;
+  registration_date: string;
+  total_cost: number;
+  status: 'confirmed' | 'pending' | 'cancelled';
+  team_name?: string; // Jointure virtuelle
+}
+
+// Données d'équipes initiales (Secours / Fallback si Supabase est hors-ligne)
+const FALLBACK_TEAMS: Team[] = [
+  {
+    id: 1,
+    name: "Metropolis Strikers",
+    coach: "Jean-Pierre Silva",
+    founded_year: 2015,
+    category: "pro",
+    registration_fee: 250,
+    image_url: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80",
+    description: "Champions en titre régionaux, réputés pour leur jeu collectif fluide et leur attaque redoutable.",
+    status: "active",
+    sport: "Football",
+    home_city: "Paris",
+    players_count: 18,
+  },
+  {
+    id: 2,
+    name: "Apex Titans",
+    coach: "Sarah Dupont",
+    founded_year: 2018,
+    category: "pro",
+    registration_fee: 300,
+    image_url: "https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=600&q=80",
+    description: "Une équipe athlétique et solide en défense, grande favorite pour le titre cette saison.",
+    status: "active",
+    sport: "Basketball",
+    home_city: "Lyon",
+    players_count: 12,
+  },
+  {
+    id: 3,
+    name: "Vanguard Eagles",
+    coach: "Marc-André Lavoie",
+    founded_year: 2020,
+    category: "varsity",
+    registration_fee: 200,
+    image_url: "https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=600&q=80",
+    description: "Jeune équipe universitaire dynamique avec une excellente cohésion tactique.",
+    status: "active",
+    sport: "Football",
+    home_city: "Marseille",
+    players_count: 22,
+  },
+  {
+    id: 4,
+    name: "Coastal Mavericks",
+    coach: "Hélène Rocher",
+    founded_year: 2021,
+    category: "amateur",
+    registration_fee: 150,
+    image_url: "https://images.unsplash.com/photo-1592656094267-764a45068526?auto=format&fit=crop&w=600&q=80",
+    description: "Équipe locale passionnée, prête à surprendre les favoris grâce à leur détermination.",
+    status: "pending",
+    sport: "Volleyball",
+    home_city: "Nice",
+    players_count: 10,
+  }
+];
+
+export function DashboardPage() {
+  const [supabase, setSupabase] = useState<any>(null);
+  const [teams, setTeams] = useState<Team[]>(FALLBACK_TEAMS);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
+  const [user, setUser] = useState({
+    id: "athlete-user-1",
+    email: "capitaine@prosport.com",
+    fullName: "Robert Smith",
+    licence: "LIC-2026-8942"
+  });
+
+  // États de filtrage
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedSport, setSelectedSport] = useState("");
+  const [activeSection, setActiveSection] = useState<"browse" | "registrations" | "stats">("browse");
+
+  // États du modal d'inscription
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [captainName, setCaptainName] = useState("");
+  const [customPlayersCount, setCustomPlayersCount] = useState<number>(12);
+  const [savingRegistration, setSavingRegistration] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  // 1. Chargement dynamique du client Supabase
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if ((window as any).supabase) {
+        try {
+          const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+          setSupabase(client);
+          return;
+        } catch (e) {
+          console.error("Erreur client :", e);
+        }
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      script.async = true;
+      script.onload = () => {
+        if ((window as any).supabase) {
+          try {
+            const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+            setSupabase(client);
+          } catch (e) {
+            console.error("Erreur post-chargement client :", e);
+          }
+        }
+      };
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // 2. Récupération des données en temps réel depuis Supabase
+  const fetchData = async (client: any) => {
+    try {
+      // Lecture des Équipes
+      const { data: teamsData, error: teamsErr } = await client
+        .from("teams")
+        .select("*")
+        .order("id", { ascending: true });
+
+      if (teamsErr) throw teamsErr;
+      if (teamsData && teamsData.length > 0) {
+        setTeams(teamsData);
+      }
+
+      // Lecture des Inscriptions
+      const { data: regsData, error: regsErr } = await client
+        .from("registrations")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (regsErr) throw regsErr;
+      if (regsData) {
+        setRegistrations(regsData);
+      }
+      
+      setDataLoaded(true);
+    } catch (err: any) {
+      console.warn("Mode simulation activé. Supabase inaccessible ou tables non créées.", err.message);
+      // Fallback in-memory
+      setDataLoaded(true);
+    }
+  };
+
+  useEffect(() => {
+    if (supabase) {
+      fetchData(supabase);
+    }
+  }, [supabase]);
+
+  // Remplir le capitaine lors de la sélection
+  useEffect(() => {
+    if (user) {
+      setCaptainName(user.fullName);
+    }
+  }, [user, modalOpen]);
+
+  // Affichage des toasts
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
+
+  // Filtrage logique côté client
+  const filteredTeams = useMemo(() => {
+    return teams.filter((t) => {
+      const matchesSearch = t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            t.coach.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            t.home_city.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory ? t.category === selectedCategory : true;
+      const matchesSport = selectedSport ? t.sport === selectedSport : true;
+      return matchesSearch && matchesCategory && matchesSport;
+    });
+  }, [teams, searchTerm, selectedCategory, selectedSport]);
+
+  // Statistiques calculées
+  const stats = useMemo(() => {
+    const totalPaid = registrations
+      .filter(r => r.status === 'confirmed')
+      .reduce((sum, r) => sum + r.total_cost, 0);
+
+    return {
+      activeTeams: teams.filter(t => t.status === 'active').length,
+      myRegistrations: registrations.length,
+      totalFeesPaid: totalPaid,
+      pendingRegistrations: registrations.filter(r => r.status === 'pending').length
+    };
+  }, [teams, registrations]);
+
+  // Soumission de l'inscription
+  const handleRegisterSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedTeam) return;
+
+    setSavingRegistration(true);
+
+    const payload = {
+      team_id: selectedTeam.id,
+      sport: selectedTeam.sport,
+      captain_name: captainName || user.fullName,
+      players_count: customPlayersCount,
+      registration_date: new Date().toISOString().split('T')[0],
+      total_cost: selectedTeam.registration_fee,
+      status: 'pending' as const
+    };
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("registrations")
+          .insert([payload])
+          .select();
+
+        if (error) throw error;
+        
+        if (data) {
+          setRegistrations([data[0], ...registrations]);
+          showToast(`Félicitations ! L'inscription pour "${selectedTeam.name}" a été soumise sur votre SGBD.`);
+        }
+      } catch (err: any) {
+        console.error("Erreur de transaction :", err);
+        showToast("Erreur lors de l'envoi de la demande.", "error");
+      }
+    } else {
+      // Simulation locale de secours
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const mockReg: Registration = {
+        id: registrations.length + 1,
+        team_id: selectedTeam.id,
+        sport: selectedTeam.sport,
+        captain_name: payload.captain_name,
+        players_count: payload.players_count,
+        registration_date: payload.registration_date,
+        total_cost: payload.total_cost,
+        status: 'pending',
+        team_name: selectedTeam.name
+      };
+      setRegistrations([mockReg, ...registrations]);
+      showToast(`[Mode Simulation] Inscription pour "${selectedTeam.name}" ajoutée.`);
+    }
+
+    setSavingRegistration(false);
+    setModalOpen(false);
+  };
+
+  const handleLogout = () => {
+    showToast("Déconnexion réussie. Redirection...");
+    setTimeout(() => {
+      window.location.href = "/";
+    }, 1000);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0b0d10] text-[#f1f3f7] font-sans antialiased">
+      
+      {/* ALERTE DE NOTIFICATION TOAST */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 rounded-xl bg-blue-950 border border-blue-500/30 px-5 py-4 text-sm text-blue-200 shadow-2xl animate-fade-in">
+          <div className="flex items-center gap-3">
+            <span>🔵</span>
+            <p className="font-semibold">{toastMessage}</p>
+          </div>
+        </div>
+      )}
+
+      {/* EN-TÊTE PRINCIPAL */}
+      <header className="sticky top-0 z-30 border-b border-[#222733] bg-[#11141a]/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl">🏆</span>
+            <div>
+              <h1 className="text-xl font-black tracking-tight text-white uppercase">ProSport</h1>
+              <p className="text-xs text-[#8a94a6] font-semibold tracking-wider">TOURNAMENT ATHLETE PORTAL</p>
+            </div>
+          </div>
+
+          {/* Navigation interne */}
+          <nav className="hidden md:flex items-center gap-1">
+            <button
+              onClick={() => setActiveSection("browse")}
+              className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                activeSection === "browse"
+                  ? "bg-[#2563eb] text-white"
+                  : "text-[#8a94a6] hover:text-white"
+              }`}
+            >
+              Équipes en Lice
+            </button>
+            <button
+              onClick={() => setActiveSection("registrations")}
+              className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                activeSection === "registrations"
+                  ? "bg-[#2563eb] text-white"
+                  : "text-[#8a94a6] hover:text-white"
+              }`}
+            >
+              Mes Inscriptions ({stats.myRegistrations})
+            </button>
+            <button
+              onClick={() => setActiveSection("stats")}
+              className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider transition ${
+                activeSection === "stats"
+                  ? "bg-[#2563eb] text-white"
+                  : "text-[#8a94a6] hover:text-white"
+              }`}
+            >
+              Classements & Agenda
+            </button>
+          </nav>
+
+          {/* Profil connecté */}
+          <div className="flex items-center gap-4">
+            <div className="hidden text-right sm:block">
+              <p className="text-sm font-bold text-white">{user.fullName}</p>
+              <p className="text-xs text-[#8a94a6] font-mono">{user.licence}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="rounded-full border border-[#222733] p-2 hover:border-red-500/40 hover:text-red-400 transition"
+              title="Se déconnecter"
+            >
+              🚪
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* SECTION METRICS */}
+      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#8a94a6]">Équipes Actives</p>
+            <h3 className="mt-2 text-3xl font-black text-white">{stats.activeTeams}</h3>
+            <p className="mt-1 text-xs text-emerald-400">Prêtes pour les phases de groupes</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#8a94a6]">Mes Engagements</p>
+            <h3 className="mt-2 text-3xl font-black text-white">{stats.myRegistrations}</h3>
+            <p className="mt-1 text-xs text-[#60a5fa]">{stats.pendingRegistrations} en attente de visa SGBD</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#8a94a6]">Cotisations Validées</p>
+            <h3 className="mt-2 text-3xl font-black text-[#60a5fa]">{stats.totalFeesPaid} €</h3>
+            <p className="mt-1 text-xs text-emerald-400">Paiement sécurisé crypté</p>
+          </div>
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#8a94a6]">État de la Liaison</p>
+            <h3 className="mt-2 text-base font-black flex items-center gap-2">
+              <span className={`h-3.5 w-3.5 rounded-full ${supabase ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-pulse'}`} />
+              <span className="text-sm font-mono">{supabase ? 'SGBD Connecté' : 'Simulation active'}</span>
+            </h3>
+            <p className="mt-2 text-[10px] text-[#8a94a6] tracking-tight truncate">ID: djvqynczrefmsvjjhzrx</p>
+          </div>
+        </div>
+      </section>
+
+      {/* CONTRÔLES SUR MOBILE */}
+      <div className="flex gap-2 px-4 md:hidden">
+        <button
+          onClick={() => setActiveSection("browse")}
+          className={`flex-1 rounded-lg py-2.5 text-xs font-bold uppercase transition ${
+            activeSection === "browse" ? "bg-[#2563eb] text-white" : "bg-[#11141a] text-[#8a94a6]"
+          }`}
+        >
+          Équipes
+        </button>
+        <button
+          onClick={() => setActiveSection("registrations")}
+          className={`flex-1 rounded-lg py-2.5 text-xs font-bold uppercase transition ${
+            activeSection === "registrations" ? "bg-[#2563eb] text-white" : "bg-[#11141a] text-[#8a94a6]"
+          }`}
+        >
+          Demandes ({stats.myRegistrations})
+        </button>
+        <button
+          onClick={() => setActiveSection("stats")}
+          className={`flex-1 rounded-lg py-2.5 text-xs font-bold uppercase transition ${
+            activeSection === "stats" ? "bg-[#2563eb] text-white" : "bg-[#11141a] text-[#8a94a6]"
+          }`}
+        >
+          Agenda
+        </button>
+      </div>
+
+      {/* CONTENU PRINCIPAL DE SECTION */}
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        
+        {/* ÉTAPE A : RECHERCHE ET RECRUTEMENT DE CLUBS */}
+        {activeSection === "browse" && (
+          <div>
+            {/* Zone de Filtrage */}
+            <div className="mb-8 flex flex-col gap-4 rounded-2xl border border-[#222733] bg-[#11141a] p-5 md:flex-row md:items-center">
+              <div className="flex-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#8a94a6] mb-1.5">Rechercher</label>
+                <input
+                  type="text"
+                  placeholder="Rechercher par club, coach, ville d'origine..."
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563eb]"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#8a94a6] mb-1.5">Catégorie</label>
+                <select
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-[#2563eb]"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                >
+                  <option value="">Toutes les divisions</option>
+                  <option value="pro">Ligue Professionnelle</option>
+                  <option value="amateur">Division Amateur</option>
+                  <option value="youth">Junior / Youth</option>
+                  <option value="varsity">Universitaire / Varsity</option>
+                </select>
+              </div>
+
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#8a94a6] mb-1.5">Sport</label>
+                <select
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-[#2563eb]"
+                  value={selectedSport}
+                  onChange={(e) => setSelectedSport(e.target.value)}
+                >
+                  <option value="">Tous les sports</option>
+                  <option value="Football">Football</option>
+                  <option value="Basketball">Basketball</option>
+                  <option value="Volleyball">Volleyball</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Grille Dynamique */}
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredTeams.map((team) => {
+                const isRegistered = registrations.some(r => r.team_id === team.id);
+                return (
+                  <div
+                    key={team.id}
+                    className="overflow-hidden rounded-2xl border border-[#222733] bg-[#11141a] shadow-md transition hover:-translate-y-1 hover:border-blue-500/40"
+                  >
+                    <div className="relative h-44 w-full bg-black/50">
+                      <img
+                        src={team.image_url}
+                        alt={team.name}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=600&q=80";
+                        }}
+                      />
+                      <div className="absolute top-3 right-3 flex flex-col gap-1.5 items-end">
+                        <span className="rounded-full bg-blue-600 px-3 py-1 text-[10px] font-extrabold uppercase tracking-widest text-white shadow-md">
+                          {team.sport}
+                        </span>
+                        <span className="rounded-full bg-black/60 backdrop-blur-sm px-2.5 py-1 text-[9px] font-bold text-gray-300">
+                          Fondé en {team.founded_year}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-5">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="text-lg font-black text-white">{team.name}</h3>
+                          <p className="text-xs text-[#8a94a6] font-semibold">📍 {team.home_city}</p>
+                        </div>
+                        <span className="text-lg font-black text-blue-400">{team.registration_fee} €</span>
+                      </div>
+
+                      {/* Métriques d'équipe */}
+                      <div className="mt-4 flex flex-wrap gap-1.5 text-xs">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-1 text-gray-300 font-medium">
+                          🏃‍♂️ {team.players_count} Joueurs
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-1 text-gray-300 font-medium">
+                          👔 Coach: {team.coach}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-1 text-gray-300 font-medium uppercase text-[10px]">
+                          ⭐ {team.category}
+                        </span>
+                      </div>
+
+                      <p className="mt-4 line-clamp-2 text-xs text-[#8a94a6] leading-relaxed">
+                        {team.description}
+                      </p>
+
+                      <div className="mt-5 flex items-center justify-between pt-3 border-t border-[#222733]">
+                        <span className={`h-2.5 w-2.5 rounded-full ${team.status === 'active' ? 'bg-emerald-500' : 'bg-amber-500'}`} title={team.status} />
+                        <button
+                          disabled={isRegistered}
+                          onClick={() => {
+                            setSelectedTeam(team);
+                            setModalOpen(true);
+                          }}
+                          className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider transition ${
+                            isRegistered
+                              ? "bg-emerald-950 text-emerald-400 border border-emerald-900/40 cursor-not-allowed"
+                              : "bg-[linear-gradient(145deg,#2563eb,#1d4ed8)] text-white hover:shadow-[0_4px_16px_rgba(37,99,235,.4)]"
+                          }`}
+                        >
+                          {isRegistered ? "✓ Demande Envoyée" : "Inscrire mon Équipe"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredTeams.length === 0 && (
+                <div className="col-span-full py-12 text-center rounded-2xl border border-dashed border-[#222733] bg-[#11141a]">
+                  <span className="text-4xl">🔍</span>
+                  <h3 className="mt-4 text-base font-bold text-white">Aucune équipe trouvée</h3>
+                  <p className="mt-1 text-xs text-[#8a94a6]">Veuillez affiner ou modifier vos filtres sportifs.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ÉTAPE B : ARCHIVES DES ENGAGEMENTS SPORTIFS */}
+        {activeSection === "registrations" && (
+          <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-6">
+            <h2 className="text-xl font-black text-white mb-6">Suivi de vos demandes d'engagements SGBD</h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#222733] text-xs font-semibold uppercase tracking-wider text-[#8a94a6]">
+                    <th className="pb-3 pr-4">ID Demande</th>
+                    <th className="pb-3 pr-4">ID Équipe</th>
+                    <th className="pb-3 pr-4">Discipline</th>
+                    <th className="pb-3 pr-4">Nom du Capitaine</th>
+                    <th className="pb-3 pr-4">Effectif Officiel</th>
+                    <th className="pb-3 pr-4">Date de soumission</th>
+                    <th className="pb-3 pr-4">Frais engagés</th>
+                    <th className="pb-3">Validation SGBD</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#222733] text-sm">
+                  {registrations.map((reg) => (
+                    <tr key={reg.id} className="hover:bg-white/5 transition">
+                      <td className="py-4 font-mono text-xs">#{reg.id}</td>
+                      <td className="py-4 font-bold text-white">
+                        {reg.team_name || `Équipe ID #${reg.team_id}`}
+                      </td>
+                      <td className="py-4">
+                        <span className="rounded bg-blue-900/30 px-2.5 py-1 text-xs font-semibold text-blue-300">
+                          {reg.sport}
+                        </span>
+                      </td>
+                      <td className="py-4">{reg.captain_name}</td>
+                      <td className="py-4">{reg.players_count} athlètes</td>
+                      <td className="py-4 text-xs font-mono">{reg.registration_date}</td>
+                      <td className="py-4 font-bold text-blue-400">{reg.total_cost} €</td>
+                      <td className="py-4">
+                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium uppercase ${
+                          reg.status === 'confirmed'
+                            ? "bg-emerald-950 text-emerald-400"
+                            : reg.status === 'pending'
+                            ? "bg-amber-950 text-amber-400"
+                            : "bg-red-950 text-red-400"
+                        }`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${
+                            reg.status === 'confirmed' ? "bg-emerald-400" : reg.status === 'pending' ? "bg-amber-400" : "bg-red-400"
+                          }`} />
+                          {reg.status === 'confirmed' ? 'Validé' : reg.status === 'pending' ? 'En attente' : 'Refusé'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {registrations.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-[#8a94a6] text-sm">
+                        Aucune demande d'inscription trouvée sur votre SGBD.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ÉTAPE C : CLASSEMENTS ET PROCHAINES RECONTRES */}
+        {activeSection === "stats" && (
+          <div className="grid gap-6 md:grid-cols-3">
+            <div className="col-span-2 rounded-2xl border border-[#222733] bg-[#11141a] p-6">
+              <h2 className="text-xl font-black text-white mb-4">Classement Général de la Ligue</h2>
+              <p className="text-xs text-[#8a94a6] mb-6">Mise à jour en direct via le module PostgreSQL.</p>
+              
+              <div className="space-y-4">
+                {[
+                  { rank: 1, name: "Metropolis Strikers", pts: 28, win: 9, draw: 1, lost: 0, form: "🟢🟢🟢🟢🟢" },
+                  { rank: 2, name: "Apex Titans", pts: 24, win: 8, draw: 0, lost: 2, form: "🟢🟢🔴🟢🟢" },
+                  { rank: 3, name: "Vanguard Eagles", pts: 18, win: 5, draw: 3, lost: 2, form: "🟡🟢🟡🔴🟡" },
+                  { rank: 4, name: "Coastal Mavericks", pts: 12, win: 3, draw: 3, lost: 4, form: "🔴🟡🟢🔴🟢" }
+                ].map((row) => (
+                  <div key={row.rank} className="flex items-center justify-between rounded-xl bg-black/40 p-4 border border-[#222733]">
+                    <div className="flex items-center gap-4">
+                      <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-black ${
+                        row.rank === 1 ? "bg-amber-400 text-black" : row.rank === 2 ? "bg-slate-300 text-black" : "bg-orange-600 text-white"
+                      }`}>
+                        {row.rank}
+                      </span>
+                      <div>
+                        <h4 className="font-bold text-white text-sm">{row.name}</h4>
+                        <p className="text-xs text-[#8a94a6]">{row.win} V - {row.draw} N - {row.lost} D</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-base font-black text-blue-400">{row.pts} PTS</p>
+                      <p className="text-[10px] tracking-wider font-mono">{row.form}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[#222733] bg-[#11141a] p-6">
+              <h2 className="text-xl font-black text-white mb-4">Prochains Matchs</h2>
+              <div className="flow-root mt-6">
+                <ul className="-my-5 divide-y divide-[#222733] text-sm">
+                  {[
+                    { id: 1, date: "20 Mai 2026", match: "Strikers FC vs Eagles", venue: "Stade Métropolitain" },
+                    { id: 2, date: "24 Mai 2026", match: "Mavericks vs Strikers", venue: "Gymnase de la Côte" },
+                    { id: 3, date: "30 Mai 2026", match: "Apex Titans vs Warriors", venue: "Aréna des Titans" }
+                  ].map((fixture) => (
+                    <li key={fixture.id} className="py-4">
+                      <div className="flex items-center space-x-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-white truncate">{fixture.match}</p>
+                          <p className="text-xs text-[#8a94a6] truncate">🏟️ {fixture.venue}</p>
+                        </div>
+                        <div className="inline-flex items-center text-xs font-mono font-bold text-blue-400 bg-blue-950/40 rounded px-2 py-1">
+                          {fixture.date}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* FORMULAIRE D'ENGAGEMENT COMPÉTITION (MODAL COMPOSANT) */}
+      {modalOpen && selectedTeam && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-[#222733] bg-[#11141a] p-6 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-[#222733] pb-4">
+              <div>
+                <h3 className="text-lg font-black text-white">S'inscrire à la compétition</h3>
+                <p className="text-xs text-[#8a94a6]">Soumission officielle de la feuille d'effectif</p>
+              </div>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-gray-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRegisterSubmit} className="mt-4 flex flex-col gap-4">
+              
+              <div className="rounded-xl bg-black/40 p-3 border border-[#222733]">
+                <p className="text-xs font-bold text-blue-400 uppercase tracking-wide">{selectedTeam.sport}</p>
+                <p className="text-sm font-bold text-white">{selectedTeam.name}</p>
+                <p className="text-xs text-[#8a94a6] mt-1">Stade : {selectedTeam.home_city} | Frais d'adhésion : {selectedTeam.registration_fee} €</p>
+              </div>
+
+              {/* Champ Capitaine */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#8a94a6] mb-1">
+                  Nom du Capitaine d'Équipe
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                  value={captainName}
+                  onChange={(e) => setCaptainName(e.target.value)}
+                />
+              </div>
+
+              {/* Champ Effectif athlètes */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[#8a94a6] mb-1">
+                  Nombre de Licenciés à engager
+                </label>
+                <input
+                  type="number"
+                  min={5}
+                  max={30}
+                  className="w-full rounded-lg border border-[#222733] bg-black/40 px-3 py-2 text-sm text-white focus:border-[#2563eb] focus:outline-none"
+                  value={customPlayersCount}
+                  onChange={(e) => setCustomPlayersCount(Number(e.target.value))}
+                />
+                <p className="text-[10px] text-[#8a94a6] mt-1">Le SGBD impose un minimum légal de 5 joueurs par club.</p>
+              </div>
+
+              {/* Budget récapitulatif */}
+              <div className="rounded-lg bg-black/30 p-3 text-xs text-gray-300 border border-[#222733]">
+                <div className="flex justify-between font-bold">
+                  <span>Montant Total SGBD :</span>
+                  <span className="text-blue-400 text-sm">{selectedTeam.registration_fee} €</span>
+                </div>
+              </div>
+
+              {/* Boutons d'Action */}
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="rounded-full border border-[#222733] px-4 py-2 text-xs font-bold uppercase text-[#8a94a6] hover:border-red-500/40 hover:text-red-400 transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingRegistration}
+                  className="rounded-full bg-[linear-gradient(145deg,#2563eb,#1d4ed8)] px-5 py-2 text-xs font-bold uppercase text-white shadow-md disabled:opacity-60"
+                >
+                  {savingRegistration ? "Enregistrement..." : "Soumettre la feuille"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+// Point d'entrée pour l'environnement isolé de la plateforme
+export default function App() {
+  return <DashboardPage />;
+}
