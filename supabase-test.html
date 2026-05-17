@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProSport - Supabase Connection Sandbox</title>
+    <!-- Tailwind CSS for high-performance athletic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Official Supabase JS client CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg: #0b0d10;
+            --panel: #11141a;
+            --line: #222733;
+            --muted: #8a94a6;
+            --accent-1: #2563eb;
+            --accent-2: #1d4ed8;
+            --accent-3: #60a5fa;
+            --text: #f1f3f7;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-image: 
+                radial-gradient(1000px 500px at 10% -10%, rgba(37, 99, 235, 0.15), transparent 50%),
+                radial-gradient(1000px 500px at 90% 110%, rgba(96, 165, 250, 0.12), transparent 50%);
+        }
+        .console-log {
+            font-family: 'Courier New', Courier, monospace;
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-12">
+
+    <!-- TOAST NOTIFICATION ALERTS -->
+    <div id="toast" class="fixed top-5 right-5 z-50 hidden rounded-xl bg-blue-950 border border-blue-500/30 px-5 py-4 text-sm text-blue-200 shadow-2xl transition-all duration-300">
+        <div class="flex items-center gap-2">
+            <span id="toast-icon">🔵</span>
+            <p id="toast-text" class="font-semibold"></p>
+        </div>
+    </div>
+
+    <!-- MAIN HEADER -->
+    <header class="border-b border-[var(--line)] bg-[var(--panel)]/80 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-3xl">🏆</span>
+                <div>
+                    <h1 class="text-xl font-black tracking-tight text-white uppercase">ProSport Supabase Sandbox</h1>
+                    <p class="text-[10px] text-[var(--muted)] font-bold tracking-widest">SGBD TOURNAMENT REAL-TIME CONNECTIVITY TESTER</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 rounded-full bg-black/40 px-3.5 py-1.5 border border-[var(--line)] text-xs">
+                    <span id="connection-indicator" class="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span id="connection-label" class="font-bold text-gray-300">Verifying DBMS handshake...</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        
+        <!-- REMOTE DATABASE CONFIGURATION BAR -->
+        <section class="mb-8 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400 mb-4 flex items-center gap-1.5">
+                <span>🔑</span> Active Remote DBMS Configuration (Supabase)
+            </h2>
+            <div class="grid gap-4 md:grid-cols-2">
+                <div>
+                    <label class="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-wider mb-1">PROJECT ENDPOINT (SUPABASE_URL)</label>
+                    <input type="text" id="supabase-url" value="https://djvqynczrefmsvjjhzrx.supabase.co" readonly
+                           class="w-full rounded-lg bg-black/50 border border-[var(--line)] px-3 py-2 text-xs font-mono text-gray-300 outline-none">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-semibold text-[var(--muted)] uppercase tracking-wider mb-1">PUBLIC ANON KEY (SUPABASE_ANON_KEY)</label>
+                    <input type="text" id="supabase-key" value="sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk" readonly
+                           class="w-full rounded-lg bg-black/50 border border-[var(--line)] px-3 py-2 text-xs font-mono text-gray-400 outline-none">
+                </div>
+            </div>
+        </section>
+
+        <!-- TABLE SCHEMAS STABILITY DIAGNOSTIC -->
+        <section class="mb-8 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400 mb-3 flex items-center gap-1.5">
+                <span>📊</span> DBMS Relational Schema Diagnostics
+            </h2>
+            <div class="grid gap-3 grid-cols-2 sm:grid-cols-5">
+                <div id="status-teams" class="rounded-xl bg-black/30 border border-[var(--line)] p-3 text-center transition">
+                    <p class="text-[10px] text-[var(--muted)] font-bold uppercase">teams</p>
+                    <p id="badge-teams" class="text-xs font-bold mt-1 text-amber-400">⏳ Inspecting</p>
+                </div>
+                <div id="status-venues" class="rounded-xl bg-black/30 border border-[var(--line)] p-3 text-center transition">
+                    <p class="text-[10px] text-[var(--muted)] font-bold uppercase">venues</p>
+                    <p id="badge-venues" class="text-xs font-bold mt-1 text-amber-400">⏳ Inspecting</p>
+                </div>
+                <div id="status-matches" class="rounded-xl bg-black/30 border border-[var(--line)] p-3 text-center transition">
+                    <p class="text-[10px] text-[var(--muted)] font-bold uppercase">matches</p>
+                    <p id="badge-matches" class="text-xs font-bold mt-1 text-amber-400">⏳ Inspecting</p>
+                </div>
+                <div id="status-medical" class="rounded-xl bg-black/30 border border-[var(--line)] p-3 text-center transition">
+                    <p class="text-[10px] text-[var(--muted)] font-bold uppercase">incidents</p>
+                    <p id="badge-medical" class="text-xs font-bold mt-1 text-amber-400">⏳ Inspecting</p>
+                </div>
+                <div id="status-registrations" class="rounded-xl bg-black/30 border border-[var(--line)] p-3 text-center transition">
+                    <p class="text-[10px] text-[var(--muted)] font-bold uppercase">registrations</p>
+                    <p id="badge-registrations" class="text-xs font-bold mt-1 text-amber-400">⏳ Inspecting</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- CONTROL BAY & SYNC GRIDS -->
+        <div class="grid gap-8 lg:grid-cols-12">
+            
+            <!-- LEFT PANEL: ACTION FORMULAS -->
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                
+                <!-- IMMEDIATE ENGINE TRIGGERS -->
+                <div class="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
+                    <h3 class="text-sm font-black text-white uppercase tracking-tight mb-4">Quick SGBD Queries</h3>
+                    <div class="grid gap-3 grid-cols-2">
+                        <button onclick="testConnection()" 
+                                class="rounded-full bg-blue-900/30 border border-blue-500/30 hover:bg-blue-900/50 py-3 text-xs font-bold uppercase tracking-wider text-blue-300 transition">
+                            🔌 Run Handshake
+                        </button>
+                        <button onclick="insertMockTeam()" 
+                                class="rounded-full bg-[linear-gradient(145deg,var(--accent-1),var(--accent-2))] py-3 text-xs font-black uppercase tracking-wider text-white shadow-[0_4px_12px_rgba(37,99,235,.25)] hover:shadow-lg transition">
+                            🎲 Seed Mock Team
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MANUAL SQL TO TABLE INSERTION -->
+                <div class="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
+                    <h3 class="text-sm font-black text-white uppercase tracking-tight mb-4">Manual Row Entry (INSERT)</h3>
+                    <form id="team-form" onsubmit="handleManualInsert(event)" class="flex flex-col gap-4">
+                        <div>
+                          <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Official Team Name</label>
+                          <input type="text" id="team-name" required placeholder="e.g., Paris Saint-Germain"
+                                 class="w-full rounded-lg border border-[var(--line)] bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent-1)]">
+                        </div>
+
+                        <div class="grid gap-4 grid-cols-2">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Sport Discipline</label>
+                                <select id="team-sport" class="w-full rounded-lg border border-[var(--line)] bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent-1)]">
+                                    <option value="Football">Football</option>
+                                    <option value="Basketball">Basketball</option>
+                                    <option value="Volleyball">Volleyball</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Head Coach</label>
+                                <input type="text" id="team-coach" required placeholder="e.g., Didier Deschamps"
+                                       class="w-full rounded-lg border border-[var(--line)] bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent-1)]">
+                            </div>
+                        </div>
+
+                        <div class="grid gap-4 grid-cols-2">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Licence Fee (€)</label>
+                                <input type="number" id="team-fee" value="250" required min="50" max="1000"
+                                       class="w-full rounded-lg border border-[var(--line)] bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent-1)]">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Home City</label>
+                                <input type="text" id="team-city" value="Paris" required
+                                       class="w-full rounded-lg border border-[var(--line)] bg-black/40 px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent-1)]">
+                            </div>
+                        </div>
+
+                        <button type="submit" id="submit-btn"
+                                class="w-full rounded-full bg-emerald-600 hover:bg-emerald-500 py-3 text-xs font-black uppercase tracking-wider text-white shadow-md transition mt-2">
+                            📥 Insert to Postgres
+                        </button>
+                    </form>
+                </div>
+
+            </div>
+
+            <!-- RIGHT PANEL: SYNCHRONIZATION AND REAL-TIME LOGS -->
+            <div class="lg:col-span-7 flex flex-col gap-6">
+                
+                <!-- LIVE CLOUDSYNC INTERACTIVE DATA GRID -->
+                <div class="rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="text-sm font-black text-white uppercase tracking-tight">Active Cloud Database Records</h3>
+                            <p class="text-[10px] text-[var(--muted)] mt-0.5">Live records pulled from your remote 'teams' table</p>
+                        </div>
+                        <button onclick="fetchTeams()" 
+                                class="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-bold text-gray-300 hover:bg-white/5 hover:text-white transition">
+                            🔄 Refresh Grid
+                        </button>
+                    </div>
+
+                    <div class="overflow-hidden rounded-xl border border-[var(--line)] bg-black/20">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-[var(--line)] text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] bg-black/40">
+                                        <th class="px-4 py-3">ID</th>
+                                        <th class="px-4 py-3">Team / Discipline</th>
+                                        <th class="px-4 py-3">City / Coach</th>
+                                        <th class="px-4 py-3">Licence Cost</th>
+                                        <th class="px-4 py-3 text-right">Delete</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="teams-table-body" class="divide-y divide-[var(--line)] text-xs">
+                                    <tr>
+                                        <td colspan="5" class="px-4 py-8 text-center text-[var(--muted)]">
+                                            No database records loaded. Run Handshake to retrieve data.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API LOGGER TERMINAL -->
+                <div class="rounded-2xl border border-[var(--line)] bg-black p-5">
+                    <div class="flex items-center justify-between mb-3 border-b border-gray-900 pb-2">
+                        <span class="text-xs font-bold uppercase tracking-wider text-blue-400 font-mono">📡 API Request Logger</span>
+                        <button onclick="clearLogs()" class="text-[10px] font-bold text-gray-500 hover:text-gray-300 uppercase">Reset Terminal</button>
+                    </div>
+                    <div id="logs-terminal" class="console-log h-52 overflow-y-auto text-[11px] text-emerald-400 space-y-2.5 leading-relaxed">
+                        <div class="text-gray-500">// Ready to intercept Supabase REST API queries...</div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- SUPABASE HANDSHAKE SCRIPTS -->
+    <script>
+        const supabaseUrl = document.getElementById('supabase-url').value;
+        const supabaseAnonKey = document.getElementById('supabase-key').value;
+        
+        let supabaseClient;
+
+        try {
+            supabaseClient = supabase.createClient(supabaseUrl, supabaseAnonKey);
+            logMessage("SUCCESS", "Supabase Client initialized successfully.", { url: supabaseUrl });
+        } catch (e) {
+            logMessage("ERROR", "DBMS Client initialization failed: " + e.message);
+        }
+
+        function showToast(message, type = "success") {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toast-icon');
+            const text = document.getElementById('toast-text');
+            
+            text.innerText = message;
+            icon.innerText = type === "success" ? "✅" : "⚠️";
+            
+            toast.className = `fixed top-5 right-5 z-50 rounded-xl px-5 py-4 text-sm shadow-2xl transition-all duration-300 flex items-center gap-2 ${
+                type === "success" 
+                ? "bg-emerald-950 border border-emerald-500/30 text-emerald-200" 
+                : "bg-red-950 border border-red-500/30 text-red-200"
+            }`;
+            
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 4000);
+        }
+
+        function logMessage(type, message, details = null) {
+            const term = document.getElementById('logs-terminal');
+            const time = new Date().toLocaleTimeString();
+            
+            let color = "text-emerald-400";
+            if (type === "ERROR") color = "text-red-400";
+            if (type === "INFO") color = "text-sky-400";
+            if (type === "PENDING") color = "text-amber-400";
+
+            let detailsHtml = "";
+            if (details) {
+                detailsHtml = `<pre class="text-[10px] text-gray-400 bg-gray-950 p-2 rounded mt-1 overflow-x-auto">${JSON.stringify(details, null, 2)}</pre>`;
+            }
+
+            const logRow = document.createElement('div');
+            logRow.className = "border-b border-gray-950 pb-2";
+            logRow.innerHTML = `
+                <span class="text-gray-600 font-bold">[${time}]</span>
+                <span class="${color} font-bold">[${type}]</span>
+                <span class="text-gray-300 font-semibold">${message}</span>
+                ${detailsHtml}
+            `;
+            
+            term.appendChild(logRow);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('logs-terminal').innerHTML = `<div class="text-gray-500">// Terminal logs reset. Active listening...</div>`;
+        }
+
+        async function diagnoseTable(tableName, badgeId, statusBoxId) {
+            try {
+                const { error } = await supabaseClient
+                    .from(tableName)
+                    .select('*')
+                    .limit(1);
+
+                const badge = document.getElementById(badgeId);
+                const box = document.getElementById(statusBoxId);
+
+                if (error) {
+                    badge.innerText = "❌ Missing / Error";
+                    badge.className = "text-xs font-bold mt-1 text-red-400";
+                    box.className = "rounded-xl bg-red-950/25 border border-red-900/40 p-3 text-center transition";
+                    logMessage("ERROR", `Table '${tableName}' unreachable or missing from Postgres: ${error.message}`);
+                } else {
+                    badge.innerText = "🟢 Active";
+                    badge.className = "text-xs font-bold mt-1 text-emerald-400";
+                    box.className = "rounded-xl bg-emerald-950/25 border border-emerald-900/40 p-3 text-center transition";
+                    logMessage("INFO", `Table '${tableName}' validated on schema.`);
+                }
+            } catch (err) {
+                const badge = document.getElementById(badgeId);
+                badge.innerText = "❌ Offline";
+                badge.className = "text-xs font-bold mt-1 text-red-400";
+                logMessage("ERROR", `Table inspection threw exception for '${tableName}': ${err.message}`);
+            }
+        }
+
+        async function runFullSchemaDiagnostic() {
+            logMessage("PENDING", "Initiating global SGBD relational schema diagnostics...");
+            await diagnoseTable('teams', 'badge-teams', 'status-teams');
+            await diagnoseTable('venues', 'badge-venues', 'status-venues');
+            await diagnoseTable('matches', 'badge-matches', 'status-matches');
+            await diagnoseTable('medical_incidents', 'badge-medical', 'status-medical');
+            await diagnoseTable('registrations', 'badge-registrations', 'status-registrations');
+        }
+
+        async function testConnection() {
+            logMessage("PENDING", "Testing secure handshake to remote Supabase instance...");
+            
+            try {
+                const { data, error, status } = await supabaseClient
+                    .from('teams')
+                    .select('id')
+                    .limit(1);
+
+                if (error) {
+                    throw error;
+                }
+
+                document.getElementById('connection-indicator').className = "h-2.5 w-2.5 rounded-full bg-emerald-500";
+                document.getElementById('connection-label').innerText = "DBMS Link Established !";
+                document.getElementById('connection-label').className = "font-bold text-emerald-400";
+                
+                logMessage("SUCCESS", `Handshake validated. HTTP Status Code: ${status}`, data);
+                showToast("Connected to remote PostgreSQL database!");
+                
+                runFullSchemaDiagnostic();
+                fetchTeams();
+            } catch (err) {
+                document.getElementById('connection-indicator').className = "h-2.5 w-2.5 rounded-full bg-red-500";
+                document.getElementById('connection-label').innerText = "Handshake Error";
+                document.getElementById('connection-label').className = "font-bold text-red-400";
+                
+                logMessage("ERROR", `Handshake failed. Code: ${err.code || 'UNKNOWN'}. Msg: ${err.message}`, err);
+                showToast("Database query failed. Check terminal logs.", "error");
+            }
+        }
+
+        async function fetchTeams() {
+            logMessage("PENDING", "Executing read query (SELECT * FROM teams)...");
+            
+            try {
+                const { data, error } = await supabaseClient
+                    .from('teams')
+                    .select('*')
+                    .order('id', { ascending: false });
+
+                if (error) throw error;
+
+                logMessage("SUCCESS", `${data.length} records fetched from Postgres.`, data);
+                
+                const tbody = document.getElementById('teams-table-body');
+                if (data.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="5" class="px-4 py-8 text-center text-[var(--muted)]">
+                                Table 'teams' is empty. Insert a team to sync data!
+                            </td>
+                        </tr>
+                    `;
+                    return;
+                }
+
+                tbody.innerHTML = data.map(team => `
+                    <tr class="hover:bg-white/[0.02] transition">
+                        <td class="px-4 py-3 font-mono text-[10px] text-gray-500">#${team.id}</td>
+                        <td class="px-4 py-3">
+                            <span class="font-bold text-white block">${team.name}</span>
+                            <span class="text-[10px] text-blue-400 font-semibold uppercase">${team.sport}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="block">${team.home_city || 'Unknown'}</span>
+                            <span class="text-[10px] text-[var(--muted)]">Coach: ${team.coach}</span>
+                        </td>
+                        <td class="px-4 py-3 font-bold text-blue-400">${team.registration_fee} €</td>
+                        <td class="px-4 py-3 text-right">
+                            <button onclick="deleteTeam(${team.id}, '${team.name.replace(/'/g, "\\'")}')"
+                                    class="text-[10px] font-bold text-red-400 hover:text-red-300 uppercase hover:underline">
+                                🗑️ Delete
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+
+            } catch (err) {
+                logMessage("ERROR", "Data grid synchronization failed: " + err.message, err);
+                showToast("Failed to fetch records.", "error");
+            }
+        }
+
+        async function handleManualInsert(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Writing to remote DBMS...";
+
+            const name = document.getElementById('team-name').value;
+            const sport = document.getElementById('team-sport').value;
+            const coach = document.getElementById('team-coach').value;
+            const fee = Number(document.getElementById('team-fee').value);
+            const city = document.getElementById('team-city').value;
+
+            const payload = {
+                name,
+                sport,
+                coach,
+                registration_fee: fee,
+                home_city: city,
+                founded_year: 2026,
+                status: 'active',
+                players_count: 12
+            };
+
+            logMessage("PENDING", "Executing insertion transaction (INSERT INTO teams)...", payload);
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('teams')
+                    .insert([payload])
+                    .select();
+
+                if (error) throw error;
+
+                logMessage("SUCCESS", `Team "${name}" successfully written to remote table.`, data);
+                showToast(`"${name}" synchronized!`);
+                
+                document.getElementById('team-name').value = "";
+                fetchTeams();
+            } catch (err) {
+                logMessage("ERROR", "INSERT transaction failed: " + err.message, err);
+                showToast("Transaction write failed.", "error");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Insert to Postgres";
+            }
+        }
+
+        async function insertMockTeam() {
+            const sports = ["Football", "Basketball", "Volleyball"];
+            const selectedSport = sports[Math.floor(Math.random() * sports.length)];
+
+            const prefixes = ["Metropolis", "Apex", "Vanguard", "Coastal", "Zenith", "Elite", "Olympique", "Racing"];
+            const suffixes = ["Strikers", "Titans", "Eagles", "Mavericks", "Warriors", "United", "Athletic", "Stars"];
+            const cities = ["Paris", "Lyon", "Marseille", "Nice", "Lille", "Bordeaux", "Nantes", "Toulouse"];
+            const coaches = ["Jean-Pierre Silva", "Sarah Dupont", "Marc-André Lavoie", "Hélène Rocher"];
+
+            const randomName = `${prefixes[Math.floor(Math.random() * prefixes.length)]} ${suffixes[Math.floor(Math.random() * suffixes.length)]} ${Math.floor(Math.random() * 90 + 10)}`;
+            const randomCoach = coaches[Math.floor(Math.random() * coaches.length)];
+            const randomCity = cities[Math.floor(Math.random() * cities.length)];
+            const randomFee = Math.floor(Math.random() * 5 + 3) * 50;
+
+            const payload = {
+                name: randomName,
+                sport: selectedSport,
+                coach: randomCoach,
+                registration_fee: randomFee,
+                home_city: randomCity,
+                founded_year: Math.floor(Math.random() * 15 + 2010),
+                status: 'active',
+                players_count: Math.floor(Math.random() * 10 + 10)
+            };
+
+            logMessage("PENDING", "Seeding generated mock payload into 'teams' table...", payload);
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('teams')
+                    .insert([payload])
+                    .select();
+
+                if (error) throw error;
+
+                logMessage("SUCCESS", `Mock team "${randomName}" committed to database.`, data);
+                showToast(`Generated and synced mock team!`);
+                fetchTeams();
+            } catch (err) {
+                logMessage("ERROR", "Seeding failed: " + err.message, err);
+                showToast("Mock transaction failed.", "error");
+            }
+        }
+
+        async function deleteTeam(id, name) {
+            logMessage("PENDING", `Executing row deletion (DELETE FROM teams WHERE id = ${id})...`);
+            
+            try {
+                const { error } = await supabaseClient
+                    .from('teams')
+                    .delete()
+                    .eq('id', id);
+
+                if (error) throw error;
+
+                logMessage("SUCCESS", `Row with ID #${id} ("${name}") permanently deleted from database.`);
+                showToast(`"${name}" deleted successfully.`);
+                fetchTeams();
+            } catch (err) {
+                logMessage("ERROR", "DELETE query failed: " + err.message, err);
+                showToast("Deletion failed.", "error");
+            }
+        }
+
+        window.onload = function() {
+            testConnection();
+        }
+    </script>
+</body>
+</html>
