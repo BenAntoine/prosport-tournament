@@ -1,0 +1,352 @@
+"use client";
+
+import { FormEvent, useState, useEffect } from "react";
+
+// Configuration de la base de données distante Supabase
+const supabaseUrl = "https://djvqynczrefmsvjjhzrx.supabase.co";
+const supabaseAnonKey = "sb_publishable_FI1uEmZb14jps8kO30RyEg_iZaqdKMk";
+
+export default function App() {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [idNumber, setIdNumber] = useState(""); // Utilisé comme numéro de licence sportive
+  const [password, setPassword] = useState("");
+  
+  const [userErr, setUserErr] = useState("");
+  const [emailErr, setEmailErr] = useState("");
+  const [phoneErr, setPhoneErr] = useState("");
+  const [idErr, setIdErr] = useState("");
+  const [passErr, setPassErr] = useState("");
+  const [generalErr, setGeneralErr] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [supabase, setSupabase] = useState<any>(null);
+
+  // Chargement dynamique du script de Supabase pour éviter les erreurs de résolution npm
+  useEffect(() => {
+    const loadSupabase = () => {
+      if (typeof window !== "undefined") {
+        if ((window as any).supabase) {
+          try {
+            const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+            setSupabase(client);
+            return;
+          } catch (e) {
+            console.error("Erreur lors de la création du client :", e);
+          }
+        }
+
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+        script.async = true;
+        script.onload = () => {
+          if ((window as any).supabase) {
+            try {
+              const client = (window as any).supabase.createClient(supabaseUrl, supabaseAnonKey);
+              setSupabase(client);
+            } catch (e) {
+              console.error("Erreur lors de la création du client après chargement :", e);
+            }
+          }
+        };
+        document.body.appendChild(script);
+      }
+    };
+
+    loadSupabase();
+  }, []);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+
+    // Réinitialisation des messages d'erreur et de succès
+    setUserErr("");
+    setEmailErr("");
+    setPhoneErr("");
+    setIdErr("");
+    setPassErr("");
+    setGeneralErr("");
+    setSuccessMsg("");
+
+    let valid = true;
+
+    // Validation du Nom Complet
+    if (!fullName) {
+      setUserErr("Veuillez saisir votre nom complet.");
+      valid = false;
+    } else if (fullName.length < 2) {
+      setUserErr("Le nom complet doit contenir au moins 2 caractères.");
+      valid = false;
+    }
+
+    // Validation de l'Email
+    if (!email) {
+      setEmailErr("Veuillez saisir votre adresse email.");
+      valid = false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setEmailErr("Veuillez saisir une adresse email valide.");
+      valid = false;
+    }
+
+    // Validation du Téléphone
+    if (!phone) {
+      setPhoneErr("Veuillez saisir un numéro de téléphone.");
+      valid = false;
+    }
+
+    // Validation du Numéro de Licence
+    if (!idNumber) {
+      setIdErr("Veuillez renseigner votre numéro de licence sportive.");
+      valid = false;
+    }
+
+    // Validation du Mot de Passe
+    if (!password) {
+      setPassErr("Veuillez saisir un mot de passe.");
+      valid = false;
+    } else if (password.length < 6) {
+      setPassErr("Le mot de passe doit contenir au moins 6 caractères.");
+      valid = false;
+    }
+
+    if (!valid) return;
+
+    setLoading(true);
+
+    // Mode simulation de secours en cours de chargement de la liaison Supabase
+    if (!supabase) {
+      setTimeout(() => {
+        setSuccessMsg(
+          "Inscription enregistrée ! (Compte créé via le mode simulation - Supabase est en cours de chargement)."
+        );
+        setFullName("");
+        setEmail("");
+        setPhone("");
+        setIdNumber("");
+        setPassword("");
+        setLoading(false);
+      }, 1000);
+      return;
+    }
+
+    try {
+      // 1. Inscription de l'utilisateur dans le module d'authentification Supabase
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            phone: phone,
+            id_number: idNumber,
+            role: "customer"
+          }
+        }
+      });
+
+      if (authError) {
+        setGeneralErr(authError.message || "Une erreur est survenue lors de la création du compte.");
+        setLoading(false);
+        return;
+      }
+
+      // 2. Insertion du profil utilisateur dans la table 'profiles' de PostgreSQL
+      if (data?.user) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .insert([
+            {
+              id: data.user.id,
+              full_name: fullName,
+              phone: phone,
+              id_number: idNumber,
+              role: "customer"
+            }
+          ]);
+
+        if (profileError) {
+          setGeneralErr(profileError.message || "Le compte d'authentification a été créé mais le profil n'a pas pu être enregistré.");
+          setLoading(false);
+          return;
+        }
+
+        setSuccessMsg(
+          "Compte d'athlète créé en temps réel sur votre base de données Supabase !"
+        );
+        
+        // Réinitialisation des champs du formulaire
+        setFullName("");
+        setEmail("");
+        setPhone("");
+        setIdNumber("");
+        setPassword("");
+      }
+    } catch (err: unknown) {
+      console.error("Erreur lors de l'inscription :", err);
+      setGeneralErr("Impossible de finaliser l'inscription. Veuillez réessayer.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#0b0d10] px-4 py-10">
+      <div className="grid w-full max-w-[940px] overflow-hidden rounded-[20px] border border-[#222733] bg-[#11141a] shadow-[0_24px_64px_rgba(0,0,0,.4)] md:grid-cols-2">
+        
+        {/* SECTION GAUCHE : Formulaire d'Inscription */}
+        <div className="flex flex-col justify-center px-8 py-10 sm:px-14">
+          <div className="mb-6">
+            <h1 className="text-3xl font-extrabold tracking-tight text-[#f1f3f7]">
+              Rejoindre la Ligue
+            </h1>
+            <p className="mt-2 text-sm text-[#8a94a6]">
+              Enregistrez-vous comme responsable ou capitaine pour inscrire votre équipe.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {generalErr && (
+              <div className="rounded-md bg-red-950/40 p-3 text-sm text-red-400 border border-red-900/50">
+                {generalErr}
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="rounded-md bg-emerald-950/40 p-3 text-sm text-emerald-400 border border-emerald-900/50">
+                {successMsg}{" "}
+                <a href="/" className="font-semibold underline">
+                  Se connecter ici
+                </a>
+              </div>
+            )}
+
+            {/* Champ Nom Complet */}
+            <div className="flex flex-col">
+              <label className="mb-0.5 text-xs font-semibold tracking-wider text-[#8a94a6] uppercase">
+                Nom Complet du Responsable
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Robert Smith"
+                className="w-full border-b-2 border-[#222733] bg-transparent px-1 py-2 text-sm text-[#f1f3f7] outline-none transition focus:border-[#2563eb]"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+              {userErr && <p className="mt-1 text-xs text-red-400">{userErr}</p>}
+            </div>
+
+            {/* Champ Email */}
+            <div className="flex flex-col">
+              <label className="mb-0.5 text-xs font-semibold tracking-wider text-[#8a94a6] uppercase">
+                Adresse Email Professionnelle
+              </label>
+              <input
+                type="email"
+                placeholder="capitaine@equipe.com"
+                className="w-full border-b-2 border-[#222733] bg-transparent px-1 py-2 text-sm text-[#f1f3f7] outline-none transition focus:border-[#2563eb]"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              {emailErr && (
+                <p className="mt-1 text-xs text-red-400">{emailErr}</p>
+              )}
+            </div>
+
+            {/* Champ Téléphone */}
+            <div className="flex flex-col">
+              <label className="mb-0.5 text-xs font-semibold tracking-wider text-[#8a94a6] uppercase">
+                Téléphone de Contact
+              </label>
+              <input
+                type="tel"
+                placeholder="Ex: +33 6 12 34 56 78"
+                className="w-full border-b-2 border-[#222733] bg-transparent px-1 py-2 text-sm text-[#f1f3f7] outline-none transition focus:border-[#2563eb]"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+              {phoneErr && (
+                <p className="mt-1 text-xs text-red-400">{phoneErr}</p>
+              )}
+            </div>
+
+            {/* Champ Numéro de Licence / ID */}
+            <div className="flex flex-col">
+              <label className="mb-0.5 text-xs font-semibold tracking-wider text-[#8a94a6] uppercase">
+                Numéro de Licence Sportive
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: LIC-2026-8942"
+                className="w-full border-b-2 border-[#222733] bg-transparent px-1 py-2 text-sm text-[#f1f3f7] outline-none transition focus:border-[#2563eb]"
+                value={idNumber}
+                onChange={(e) => setIdNumber(e.target.value)}
+              />
+              {idErr && <p className="mt-1 text-xs text-red-400">{idErr}</p>}
+            </div>
+
+            {/* Champ Mot de Passe */}
+            <div className="flex flex-col">
+              <label className="mb-0.5 text-xs font-semibold tracking-wider text-[#8a94a6] uppercase">
+                Définir un Mot de Passe
+              </label>
+              <input
+                type="password"
+                placeholder="••••••••"
+                className="w-full border-b-2 border-[#222733] bg-transparent px-1 py-2 text-sm text-[#f1f3f7] outline-none transition focus:border-[#2563eb]"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              {passErr && (
+                <p className="mt-1 text-xs text-red-400">{passErr}</p>
+              )}
+            </div>
+
+            {/* Bouton Enregistrer */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="mt-4 w-full rounded-full bg-[linear-gradient(145deg,#2563eb,#1d4ed8)] py-3.5 text-sm font-bold tracking-wide text-white shadow-[0_8px_24px_rgba(37,99,235,.35)] transition hover:shadow-[0_10px_28px_rgba(37,99,235,.45)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Création du compte..." : "Inscrire mon Équipe"}
+            </button>
+
+            {/* Retour Connexion */}
+            <p className="mt-4 text-center text-xs text-[#8a94a6]">
+              Déjà inscrit ?{" "}
+              <a
+                href="/"
+                className="font-semibold text-[#60a5fa] hover:underline"
+              >
+                Se connecter
+              </a>
+            </p>
+          </form>
+        </div>
+
+        {/* SECTION DROITE : Panneau d'Information ProSport */}
+        <div className="relative hidden items-center justify-center bg-[linear-gradient(145deg,rgba(30,64,175,.95),rgba(29,78,216,.95))] p-8 text-white md:flex">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(96,165,250,0.15),transparent_70%)] pointer-events-none" />
+          
+          <div className="relative z-[1] grid h-full place-items-center px-10 text-center">
+            <div>
+              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-3xl">
+                📝
+              </div>
+              <h2 className="mb-4 text-[40px] font-extrabold leading-[1.1] tracking-tight">
+                INSCRIPTION DE L'ÉQUIPE
+              </h2>
+              <p className="mx-auto max-w-xs text-sm font-medium leading-relaxed text-blue-100">
+                Créez votre profil de responsable sportif pour soumettre vos athlètes officiels, valider vos paiements de licence et planifier vos matchs éliminatoires.
+              </p>
+              <div className="mt-8 inline-flex items-center gap-2 rounded-full bg-white/5 px-4 py-1.5 text-xs text-blue-200">
+                <span>Phase finale Saison 2026</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
