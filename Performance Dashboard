@@ -1,0 +1,55 @@
+"use client";
+
+import { useState } from "react";
+import { BarChart, Users, Calendar, Trophy } from "lucide-react";
+
+// --- COMPOSANT DASHBOARD ---
+export function DashboardPage() {
+  const stats = [
+    { label: "Matchs ce mois", value: "24", icon: Calendar, color: "text-blue-500" },
+    { label: "Équipes actives", value: "18", icon: Users, color: "text-purple-500" },
+    { label: "Tournois en cours", value: "3", icon: Trophy, color: "text-amber-500" },
+    { label: "Taux de remplissage", value: "88%", icon: BarChart, color: "text-emerald-500" },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#050505] text-gray-200 p-8 font-sans">
+      <div className="max-w-6xl mx-auto">
+        <header className="mb-10">
+          <h1 className="text-4xl font-extrabold text-white tracking-tighter">Analyse de la Ligue</h1>
+          <p className="text-gray-500">Synthèse des activités et performances globales</p>
+        </header>
+
+        {/* Grille des indicateurs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          {stats.map((stat, i) => (
+            <div key={i} className="bg-[#0b0b0b] p-6 rounded-3xl border border-gray-800 hover:border-gray-600 transition">
+              <stat.icon className={`${stat.color} mb-4`} size={28} />
+              <div className="text-3xl font-black text-white">{stat.value}</div>
+              <div className="text-sm text-gray-500 uppercase tracking-wider">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Section graphique simplifiée */}
+        <div className="bg-[#0b0b0b] p-8 rounded-3xl border border-gray-800">
+          <h2 className="text-xl font-bold mb-6">Répartition des points par équipe</h2>
+          <div className="h-64 flex items-end gap-4">
+            {[40, 70, 45, 90, 60, 30, 85, 55].map((h, i) => (
+              <div key={i} className="flex-1 bg-gray-800 rounded-t-lg relative group">
+                <div 
+                  className="bg-blue-600 w-full rounded-t-lg transition-all duration-500 group-hover:bg-blue-400" 
+                  style={{ height: `${h}%` }}
+                ></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return <DashboardPage />;
+}
